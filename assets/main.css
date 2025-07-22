@@ -3,43 +3,31 @@ body {
     background-color: #0f1116;
     color: #ffffff;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 20px;
-}
-
-#hero {
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    padding: 0;
+    overflow: hidden;
 }
 
-#links {
-    width: 400px;
-    text-align: left;
-    font-size: x-large;
-    color: white;
-    display: flex;
-    flex-direction: column;
+.draggable-circle {
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    background-color: #3b82f6;
+    border-radius: 12px;
+    cursor: grab;
+    transition: transform 0.1s ease;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
 }
 
-#links a {
-    color: white;
-    text-decoration: none;
-    margin-top: 20px;
-    margin: 10px 0px;
-    border: white 1px solid;
-    border-radius: 5px;
-    padding: 10px;
+.draggable-circle:hover {
+    background-color: #2563eb;
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6);
 }
 
-#links a:hover {
-    background-color: #1f1f1f;
-    cursor: pointer;
-}
-
-#header {
-    max-width: 1200px;
+.draggable-circle:active {
+    cursor: grabbing;
+    transform: scale(0.95);
 }
 
 

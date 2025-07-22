@@ -9,6 +9,9 @@ edition = "2021"
 [dependencies]
 dioxus = { version = "0.6.0", features = [] }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = ["Window"] }
+
 [features]
 default = ["web"]
 web = ["dioxus/web"]
