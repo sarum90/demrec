@@ -10,25 +10,31 @@ body {
 
 .draggable-circle {
     position: absolute;
-    width: 80px;
-    height: 80px;
-    background-color: #3b82f6;
+    background-color: #1a1a1a;
     border-radius: 12px;
-    cursor: grab;
     transition: transform 0.1s ease;
-    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    position: relative;
+}
+
+/* Resize handle indicator */
+.draggable-circle::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.2) 50%);
+    border-bottom-right-radius: 12px;
+    pointer-events: none;
 }
 
 .draggable-circle:hover {
-    background-color: #2563eb;
-    transform: scale(1.1);
-    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
 }
 
-.draggable-circle:active {
-    cursor: grabbing;
-    transform: scale(0.95);
-}
 
 
 

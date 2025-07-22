@@ -10,7 +10,9 @@ edition = "2021"
 dioxus = { version = "0.6.0", features = [] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "MediaDevices", "MediaStreamConstraints", "MediaStream", "HtmlVideoElement", "Element", "Document"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 
 [features]
 default = ["web"]
