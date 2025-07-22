@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
-const FAVICON: Asset = asset!("/assets/favicon.ico");
-const MAIN_CSS: Asset = asset!("/assets/main.css");
+// const FAVICON: Asset = asset!("/assets/favicon.ico");
+// const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 fn main() {
     dioxus::launch(App);
@@ -11,10 +11,9 @@ fn main() {
 #[component]
 fn App() -> Element {
     rsx! {
-        document::Link { rel: "icon", href: FAVICON }
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        // document::Link { rel: "icon", href: FAVICON }
+        // document::Link { rel: "stylesheet", href: MAIN_CSS }
         DraggableCircle {}
-
     }
 }
 
@@ -29,6 +28,8 @@ fn DraggableCircle() -> Element {
     let mut resize_start = use_signal(|| (0.0, 0.0));
     let mut resize_corner = use_signal(|| "");
     let mut hover_zone = use_signal(|| "drag"); // "drag" or "resize"
+    let mut screen_stream = use_signal(|| None::<web_sys::MediaStream>);
+    let mut is_screen_sharing = use_signal(|| false);
 
     use_effect(move || {
         spawn(async move {
@@ -36,7 +37,7 @@ fn DraggableCircle() -> Element {
                 let navigator = window.navigator();
                 if let Ok(media_devices) = navigator.media_devices() {
                     // Create constraints for video
-                    let mut constraints = web_sys::MediaStreamConstraints::new();
+                    let constraints = web_sys::MediaStreamConstraints::new();
                     constraints.set_video(&true.into());
                     constraints.set_audio(&false.into());
 
@@ -59,9 +60,11 @@ fn DraggableCircle() -> Element {
         });
     });
 
+    // Function to start screen sharing
+
     rsx! {
         div {
-            style: "position: relative; width: 100vw; height: 100vh;",
+            style: "position: relative; width: 100vw; height: 100vh; background-color: #0f1116;",
             onmousemove: move |event| {
                 let mouse_x = event.client_coordinates().x;
                 let mouse_y = event.client_coordinates().y;
@@ -84,7 +87,7 @@ fn DraggableCircle() -> Element {
 
                     position.set((clamped_x, clamped_y));
                 } else if is_resizing() {
-                    let start = resize_start();
+                    let _start = resize_start();
                     let corner = resize_corner();
                     let pos = position();
                     let current_size = size();
@@ -118,23 +121,99 @@ fn DraggableCircle() -> Element {
                 is_resizing.set(false);
             },
 
+            // Screen share video background
+            {
+                if let Some(stream) = screen_stream() {
+                    rsx! {
+                        video {
+                            style: "position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 0;",
+                            autoplay: "true",
+                            playsinline: "true",
+                            muted: "true",
+                            onmounted: move |_| {
+                                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                                    if let Some(element) = document.query_selector("video[style*='z-index: 0']").ok().flatten() {
+                                        if let Ok(video_elem) = element.dyn_into::<web_sys::HtmlVideoElement>() {
+                                            video_elem.set_src_object(Some(&stream));
+                                            let _ = video_elem.play();
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+                } else {
+                    rsx! {}
+                }
+            }
+
+            // Screen share button
+            button {
+                style: "position: absolute; top: 20px; left: 20px; z-index: 10; padding: 10px 20px; background-color: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; transition: background-color 0.2s;",
+                onclick: move |_| {
+                    if is_screen_sharing() {
+                        // Stop screen share
+                        if let Some(stream) = screen_stream() {
+                            let tracks = stream.get_tracks();
+                            for i in 0..tracks.length() {
+                                let track = tracks.get(i);
+                                if let Ok(media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
+                                    media_track.stop();
+                                }
+                            }
+                        }
+                        screen_stream.set(None);
+                        is_screen_sharing.set(false);
+                    } else {
+                        // Start screen share
+                        spawn(async move {
+                            if let Some(window) = web_sys::window() {
+                                let navigator = window.navigator();
+                                if let Ok(media_devices) = navigator.media_devices() {
+                                    let constraints = web_sys::MediaStreamConstraints::new();
+                                    constraints.set_video(&wasm_bindgen::JsValue::from(true));
+                                    constraints.set_audio(&wasm_bindgen::JsValue::from(false));
+                                    
+                                    if let Ok(promise) = media_devices.get_display_media() {
+                                        let future = wasm_bindgen_futures::JsFuture::from(promise);
+                                        if let Ok(stream) = future.await {
+                                            if let Ok(media_stream) = stream.dyn_into::<web_sys::MediaStream>() {
+                                                screen_stream.set(Some(media_stream));
+                                                is_screen_sharing.set(true);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                },
+                {if is_screen_sharing() { "Stop Sharing" } else { "Share Screen" }}
+            },
+
             div {
                 class: "draggable-circle",
-                style: "left: {position().0}px; top: {position().1}px; width: {size().0}px; height: {size().1}px; cursor: {if is_dragging() { \"grabbing\" } else if is_resizing() { \"nwse-resize\" } else if hover_zone() == \"resize\" { \"nwse-resize\" } else { \"grab\" }};",
+                style: format!("left: {}px; top: {}px; width: {}px; height: {}px; cursor: {}; z-index: 100;", 
+                    position().0, 
+                    position().1, 
+                    size().0, 
+                    size().1,
+                    if is_dragging() { "grabbing" } else if is_resizing() { "nwse-resize" } else if hover_zone() == "resize" { "nwse-resize" } else { "grab" }
+                ),
                 onmousemove: move |event| {
                     let mouse_x = event.client_coordinates().x;
                     let mouse_y = event.client_coordinates().y;
                     let pos = position();
                     let current_size = size();
-                    
+
                     // Check if mouse is in corner zone
                     let corner_size = 20.0;
                     let rel_x = mouse_x - pos.0;
                     let rel_y = mouse_y - pos.1;
-                    
+
                     let near_right = rel_x > current_size.0 - corner_size;
                     let near_bottom = rel_y > current_size.1 - corner_size;
-                    
+
                     if near_right && near_bottom {
                         hover_zone.set("resize");
                     } else {
@@ -171,9 +250,9 @@ fn DraggableCircle() -> Element {
                 video {
                     id: "camera-video",
                     style: "width: 100%; height: 100%; object-fit: cover; border-radius: 12px; transform: scaleX(-1);",
-                    autoplay: true,
-                    playsinline: true,
-                    muted: true,
+                    autoplay: "true",
+                    playsinline: "true", 
+                    muted: "true",
                     onmounted: move |_| {
                         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
                             if let Some(element) = document.get_element_by_id("camera-video") {
