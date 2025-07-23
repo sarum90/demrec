@@ -5,6 +5,9 @@
 # HTML title tag content
 title = "demrec"
 
+# Base path for assets when deployed to subdirectory
+base_path = "/demrec/"
+
 # include `assets` in web platform
 [web.resource]
 
