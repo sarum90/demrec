@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 dioxus = "0.6"
-web-sys = { version = "0.3", features = ["Window", "Navigator", "MediaDevices", "MediaStreamConstraints", "MediaStream", "HtmlVideoElement", "Element", "Document", "MediaStreamTrack", "HtmlCanvasElement", "CanvasRenderingContext2d", "MediaRecorder", "BlobEvent", "Blob", "Url", "HtmlAnchorElement", "Event", "BlobPropertyBag"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "MediaDevices", "MediaStreamConstraints", "MediaStream", "HtmlVideoElement", "Element", "Document", "MediaStreamTrack", "HtmlCanvasElement", "CanvasRenderingContext2d", "MediaRecorder", "MediaRecorderOptions", "BlobEvent", "Blob", "Url", "HtmlAnchorElement", "Event", "BlobPropertyBag", "FileSystemFileHandle", "FileSystemWritableFileStream", "WriteParams"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
