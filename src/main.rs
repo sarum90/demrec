@@ -37,7 +37,7 @@ fn DraggableCircle() -> Element {
     let mut is_recording = use_signal(|| false);
     let mut media_recorder = use_signal(|| None::<web_sys::MediaRecorder>);
     let mut recorded_chunks = use_signal(|| Vec::<web_sys::Blob>::new());
-    let mut camera_enabled = use_signal(|| true);
+    let mut camera_enabled = use_signal(|| false);
     let mut camera_stream = use_signal(|| None::<web_sys::MediaStream>);
     let mut is_crop_mode = use_signal(|| false);
     let mut crop_start = use_signal(|| (0.0, 0.0));
@@ -51,6 +51,9 @@ fn DraggableCircle() -> Element {
     let mut is_pointer_mode = use_signal(|| false);
     let mut pointer_position = use_signal(|| (0.0, 0.0));
     let mut camera_zoom = use_signal(|| 1.0); // 1.0 = normal, >1.0 = zoomed in
+    let mut pip_video_element = use_signal(|| None::<web_sys::HtmlVideoElement>);
+    let mut is_pip_active = use_signal(|| false);
+    let mut countdown_value = use_signal(|| 0); // 0 = no countdown, 3,2,1 = countdown values
 
     // Check if browser is Chrome and File System Access API is supported
     use_effect(move || {
@@ -111,9 +114,12 @@ fn DraggableCircle() -> Element {
         if let (Some(canvas), Some(camera_video)) = (canvas_ref(), camera_video_ref()) {
             if let Ok(Some(context)) = canvas.get_context("2d") {
                 if let Ok(ctx) = context.dyn_into::<web_sys::CanvasRenderingContext2d>() {
-                    let window = web_sys::window().unwrap();
-                    let viewport_width = window.inner_width().unwrap().as_f64().unwrap();
-                    let viewport_height = window.inner_height().unwrap().as_f64().unwrap();
+                    let window = match web_sys::window() {
+                        Some(w) => w,
+                        None => return,
+                    };
+                    let viewport_width = window.inner_width().unwrap_or(1280.into()).as_f64().unwrap_or(1280.0);
+                    let viewport_height = window.inner_height().unwrap_or(720.into()).as_f64().unwrap_or(720.0);
 
                     // Set canvas size
                     canvas.set_width(viewport_width as u32);
@@ -313,14 +319,41 @@ fn DraggableCircle() -> Element {
                         ctx.fill();
                         ctx.stroke();
                     }
+                    
+                    // Draw countdown if active
+                    if countdown_value() > 0 {
+                        ctx.save();
+                        
+                        // Set up extra large font for countdown
+                        ctx.set_font("bold 400px Arial");
+                        ctx.set_text_align("center");
+                        ctx.set_text_baseline("middle");
+                        
+                        // White text with black outline
+                        ctx.set_fill_style(&wasm_bindgen::JsValue::from_str("white"));
+                        ctx.set_stroke_style(&wasm_bindgen::JsValue::from_str("black"));
+                        ctx.set_line_width(12.0);
+                        
+                        let text = countdown_value().to_string();
+                        let center_x = viewport_width / 2.0;
+                        let center_y = viewport_height / 2.0;
+                        
+                        // Draw text with outline
+                        let _ = ctx.stroke_text(&text, center_x, center_y);
+                        let _ = ctx.fill_text(&text, center_x, center_y);
+                        
+                        ctx.restore();
+                    }
                 }
             }
         }
     };
 
     use_effect(move || {
-        spawn(async move {
-            if let Some(window) = web_sys::window() {
+        // Only start camera if it's enabled
+        if camera_enabled() {
+            spawn(async move {
+                if let Some(window) = web_sys::window() {
                 let navigator = window.navigator();
                 if let Ok(media_devices) = navigator.media_devices() {
                     // Create constraints for video
@@ -348,11 +381,15 @@ fn DraggableCircle() -> Element {
                 }
             }
         });
+        }
     });
 
     // Start render loop with high-frequency setInterval (smoother than before)
     use_effect(move || {
-        let window = web_sys::window().unwrap();
+        let window = match web_sys::window() {
+            Some(w) => w,
+            None => return,
+        };
         let render_loop_clone = render_loop.clone();
 
         let closure = Closure::wrap(Box::new(move || {
@@ -365,7 +402,7 @@ fn DraggableCircle() -> Element {
                 closure.as_ref().unchecked_ref(),
                 16,
             )
-            .unwrap();
+            .unwrap_or(-1);
 
         animation_frame_id.set(Some(id));
 
@@ -400,9 +437,12 @@ fn DraggableCircle() -> Element {
                         let new_y = mouse_y - offset.1;
 
                         // Get viewport dimensions
-                        let window = web_sys::window().unwrap();
-                        let viewport_width = window.inner_width().unwrap().as_f64().unwrap();
-                        let viewport_height = window.inner_height().unwrap().as_f64().unwrap();
+                        let window = match web_sys::window() {
+                            Some(w) => w,
+                            None => return,
+                        };
+                        let viewport_width = window.inner_width().unwrap_or(1280.into()).as_f64().unwrap_or(1280.0);
+                        let viewport_height = window.inner_height().unwrap_or(720.into()).as_f64().unwrap_or(720.0);
 
                         let current_size = size();
 
@@ -493,9 +533,12 @@ fn DraggableCircle() -> Element {
                                 let video_height = screen_video.video_height() as f64;
 
                                 if video_width > 0.0 && video_height > 0.0 {
-                                    let window = web_sys::window().unwrap();
-                                    let viewport_width = window.inner_width().unwrap().as_f64().unwrap();
-                                    let viewport_height = window.inner_height().unwrap().as_f64().unwrap();
+                                    let window = match web_sys::window() {
+                                        Some(w) => w,
+                                        None => return,
+                                    };
+                                    let viewport_width = window.inner_width().unwrap_or(1280.into()).as_f64().unwrap_or(1280.0);
+                                    let viewport_height = window.inner_height().unwrap_or(720.into()).as_f64().unwrap_or(720.0);
 
                                     // Calculate current video position on canvas
                                     let scale_x = viewport_width / video_width;
@@ -592,7 +635,7 @@ fn DraggableCircle() -> Element {
 
             // Pointer tool button (top)
             button {
-                style: format!("position: absolute; bottom: 368px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                style: format!("position: absolute; bottom: 426px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_pointer_mode() { "#8b5cf6" } else { "#6366f1" }
                 ),
                 onmousedown: move |event| {
@@ -614,7 +657,7 @@ fn DraggableCircle() -> Element {
 
             // Record button (2nd from top)
             button {
-                style: format!("position: absolute; bottom: 310px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                style: format!("position: absolute; bottom: 368px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_recording() { "#ef4444" } else { "#dc2626" }
                 ),
                 onclick: move |_| {
@@ -631,13 +674,15 @@ fn DraggableCircle() -> Element {
                                 spawn(async move {
                                     // Use js_sys to call close method
                                     if let Ok(close_method) = js_sys::Reflect::get(&stream, &"close".into()) {
-                                        if let Ok(promise_js) = js_sys::Reflect::apply(
-                                            &close_method.dyn_into::<js_sys::Function>().unwrap(),
-                                            &stream,
-                                            &js_sys::Array::new()
-                                        ) {
-                                            if let Ok(promise) = promise_js.dyn_into::<js_sys::Promise>() {
-                                                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                        if let Ok(func) = close_method.dyn_into::<js_sys::Function>() {
+                                            if let Ok(promise_js) = js_sys::Reflect::apply(
+                                                &func,
+                                                &stream,
+                                                &js_sys::Array::new()
+                                            ) {
+                                                if let Ok(promise) = promise_js.dyn_into::<js_sys::Promise>() {
+                                                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                                }
                                             }
                                         }
                                     }
@@ -647,9 +692,28 @@ fn DraggableCircle() -> Element {
                             }
                         }
                     } else {
-                        // Start simple recording for now - File System Access API to be implemented later
+                        // Start countdown before recording
+                        countdown_value.set(3);
+                        
+                        // Start countdown timer
+                        let mut countdown_clone = countdown_value.clone();
+                        let mut is_recording_clone = is_recording.clone();
+                        let mut recorded_chunks_clone = recorded_chunks.clone();
+                        let mut media_recorder_clone = media_recorder.clone();
+                        let canvas_ref_clone = canvas_ref.clone();
+                        
                         spawn(async move {
-                            if let Some(canvas) = canvas_ref() {
+                            // Countdown from 3 to 1
+                            for i in (1..=3).rev() {
+                                countdown_clone.set(i);
+                                gloo_timers::future::TimeoutFuture::new(1000).await;
+                            }
+                            
+                            // Clear countdown and start recording
+                            countdown_clone.set(0);
+                            
+                            // Start recording logic (moved from original)
+                            if let Some(canvas) = canvas_ref_clone() {
                                 if let Ok(canvas_stream) = canvas.capture_stream() {
                                     // Get microphone audio
                                     if let Some(window) = web_sys::window() {
@@ -675,25 +739,26 @@ fn DraggableCircle() -> Element {
                                                         // Create MediaRecorder
                                                         if let Ok(recorder) = web_sys::MediaRecorder::new_with_media_stream(&canvas_stream) {
                                                             // Clear previous recordings
-                                                            recorded_chunks.set(Vec::new());
+                                                            recorded_chunks_clone.set(Vec::new());
 
                                                             // Set up data available handler
-                                                            let mut chunks_clone = recorded_chunks.clone();
+                                                            let mut chunks_clone2 = recorded_chunks_clone.clone();
                                                             let data_handler = Closure::wrap(Box::new(move |event: web_sys::BlobEvent| {
                                                                 if let Some(data) = event.data() {
-                                                                    let mut current_chunks = chunks_clone();
+                                                                    let mut current_chunks = chunks_clone2();
                                                                     current_chunks.push(data);
-                                                                    chunks_clone.set(current_chunks);
+                                                                    chunks_clone2.set(current_chunks);
                                                                 }
                                                             }) as Box<dyn FnMut(web_sys::BlobEvent)>);
 
                                                             recorder.set_ondataavailable(Some(data_handler.as_ref().unchecked_ref()));
                                                             data_handler.forget();
 
-                                                            // Set up stop handler
+                                                            // Set up stop handler  
+                                                            let recorded_chunks_clone3 = recorded_chunks_clone.clone();
                                                             let stop_handler = Closure::wrap(Box::new(move |_event: web_sys::Event| {
                                                                 // Create and download blob when recording stops
-                                                                let chunks = recorded_chunks();
+                                                                let chunks = recorded_chunks_clone3();
                                                                 if !chunks.is_empty() {
                                                                     let blob_parts = js_sys::Array::new();
                                                                     for chunk in chunks {
@@ -710,7 +775,19 @@ fn DraggableCircle() -> Element {
                                                                                 if let Ok(link) = document.create_element("a") {
                                                                                     if let Ok(anchor) = link.dyn_into::<web_sys::HtmlAnchorElement>() {
                                                                                         anchor.set_href(&url);
-                                                                                        anchor.set_download("recording.webm");
+                                                                                        // Generate timestamp-based filename
+                                                                                        let now = js_sys::Date::new_0();
+                                                                                        let year = now.get_full_year() as i32;
+                                                                                        let month = (now.get_month() as f64 + 1.0) as i32; // getMonth() returns 0-11, so add 1
+                                                                                        let day = now.get_date() as i32;
+                                                                                        let hours = now.get_hours() as i32;
+                                                                                        let minutes = now.get_minutes() as i32;
+                                                                                        
+                                                                                        let filename = format!(
+                                                                                            "demo {}-{:02}-{:02} {:02}:{:02}.webm",
+                                                                                            year, month, day, hours, minutes
+                                                                                        );
+                                                                                        anchor.set_download(&filename);
                                                                                         anchor.click();
                                                                                         let _ = web_sys::Url::revoke_object_url(&url);
                                                                                     }
@@ -726,8 +803,8 @@ fn DraggableCircle() -> Element {
 
                                                             // Start recording
                                                             recorder.start().unwrap_or(());
-                                                            media_recorder.set(Some(recorder));
-                                                            is_recording.set(true);
+                                                            media_recorder_clone.set(Some(recorder));
+                                                            is_recording_clone.set(true);
                                                         }
                                                     }
                                                 }
@@ -743,7 +820,171 @@ fn DraggableCircle() -> Element {
                 {if is_recording() { "⏹" } else { "⏺" }}
             },
 
-            // Reset zoom button (3rd from top)
+            // Picture-in-Picture button (3rd from top)
+            button {
+                style: format!("position: absolute; bottom: 310px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                    if is_pip_active() { "#10b981" } else { "#6366f1" }
+                ),
+                onclick: move |_| {
+                    web_sys::console::log_1(&"PiP button clicked".into());
+                    if is_pip_active() {
+                        web_sys::console::log_1(&"Exiting PiP".into());
+                        // Exit PiP
+                        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                            if let Ok(promise) = js_sys::Reflect::get(&document, &"exitPictureInPicture".into()) {
+                                if let Ok(func) = promise.dyn_into::<js_sys::Function>() {
+                                    let mut is_pip_clone = is_pip_active.clone();
+                                    spawn(async move {
+                                        if let Ok(promise) = func.call0(&document) {
+                                            if let Ok(promise) = promise.dyn_into::<js_sys::Promise>() {
+                                                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                            }
+                                        }
+                                        is_pip_clone.set(false);
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        web_sys::console::log_1(&"Entering PiP".into());
+                        // Enter PiP
+                        if let Some(canvas) = canvas_ref() {
+                            web_sys::console::log_1(&"Got canvas".into());
+                            let mut pip_video_clone = pip_video_element.clone();
+                            let mut is_pip_clone = is_pip_active.clone();
+                            spawn(async move {
+                                web_sys::console::log_1(&"In spawn".into());
+                                if let Ok(stream) = canvas.capture_stream() {
+                                    web_sys::console::log_1(&"Got stream".into());
+                                    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                                        web_sys::console::log_1(&"Got document".into());
+                                        // Create or reuse video element
+                                        let video = if let Some(existing_video) = pip_video_clone() {
+                                            web_sys::console::log_1(&"Using existing video".into());
+                                            existing_video
+                                        } else {
+                                            web_sys::console::log_1(&"Creating new video".into());
+                                            if let Ok(video_elem) = document.create_element("video") {
+                                                if let Ok(video) = video_elem.dyn_into::<web_sys::HtmlVideoElement>() {
+                                                    // Hide the video element
+                                                    if let Some(html_elem) = video.dyn_ref::<web_sys::HtmlElement>() {
+                                                        html_elem.style().set_property("display", "none").ok();
+                                                    }
+                                                    if let Some(body) = document.body() {
+                                                        body.append_child(&video).ok();
+                                                    }
+                                                    pip_video_clone.set(Some(video.clone()));
+                                                    video
+                                                } else {
+                                                    web_sys::console::log_1(&"Failed to cast to video".into());
+                                                    return;
+                                                }
+                                            } else {
+                                                web_sys::console::log_1(&"Failed to create video element".into());
+                                                return;
+                                            }
+                                        };
+                                        
+                                        web_sys::console::log_1(&"Setting up video".into());
+                                        video.set_src_object(Some(&stream));
+                                        video.set_muted(true);
+                                        let _ = video.play();
+                                        
+                                        // Wait for video metadata to load before requesting PiP
+                                        let video_clone = video.clone();
+                                        let mut is_pip_clone2 = is_pip_clone.clone();
+                                        let is_recording_clone = is_recording.clone();
+                                        let media_recorder_clone = media_recorder.clone();
+                                        let is_chrome_clone = is_chrome.clone();
+                                        let file_stream_clone = file_stream.clone();
+                                        let file_handle_clone = file_handle.clone();
+                                        let callback = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                                            web_sys::console::log_1(&"Video metadata loaded, requesting PiP".into());
+                                            if let Ok(promise) = js_sys::Reflect::get(&video_clone, &"requestPictureInPicture".into()) {
+                                                web_sys::console::log_1(&"Got PiP method".into());
+                                                if let Ok(func) = promise.dyn_into::<js_sys::Function>() {
+                                                    web_sys::console::log_1(&"Calling PiP".into());
+                                                    if let Ok(_promise) = func.call0(&video_clone) {
+                                                        web_sys::console::log_1(&"PiP call succeeded".into());
+                                                        is_pip_clone2.set(true);
+                                                        
+                                                        // Add event listener for when PiP window is closed
+                                                        let video_clone2 = video_clone.clone();
+                                                        let mut is_recording_clone2 = is_recording_clone.clone();
+                                                        let media_recorder_clone2 = media_recorder_clone.clone(); 
+                                                        let mut is_pip_clone3 = is_pip_clone2.clone();
+                                                        let is_chrome_clone2 = is_chrome_clone.clone();
+                                                        let mut file_stream_clone2 = file_stream_clone.clone();
+                                                        let mut file_handle_clone2 = file_handle_clone.clone();
+                                                        
+                                                        let leave_pip_callback = wasm_bindgen::closure::Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                                                            web_sys::console::log_1(&"PiP window closed, stopping recording".into());
+                                                            is_pip_clone3.set(false);
+                                                            
+                                                            // Stop recording if it's active
+                                                            if is_recording_clone2() {
+                                                                if let Some(recorder) = media_recorder_clone2() {
+                                                                    recorder.stop().unwrap_or(());
+                                                                }
+                                                                is_recording_clone2.set(false);
+                                                                
+                                                                // Close file stream if using Chrome File System Access API
+                                                                if is_chrome_clone2() {
+                                                                    if let Some(stream) = file_stream_clone2() {
+                                                                        spawn(async move {
+                                                                            // Use js_sys to call close method
+                                                                            if let Ok(close_method) = js_sys::Reflect::get(&stream, &"close".into()) {
+                                                                                if let Ok(func) = close_method.dyn_into::<js_sys::Function>() {
+                                                                                    if let Ok(promise_js) = js_sys::Reflect::apply(
+                                                                                        &func,
+                                                                                        &stream,
+                                                                                        &js_sys::Array::new()
+                                                                                    ) {
+                                                                                        if let Ok(promise) = promise_js.dyn_into::<js_sys::Promise>() {
+                                                                                            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                        file_stream_clone2.set(None);
+                                                                        file_handle_clone2.set(None);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }) as Box<dyn FnMut(web_sys::Event)>);
+                                                        
+                                                        video_clone2.add_event_listener_with_callback("leavepictureinpicture", leave_pip_callback.as_ref().unchecked_ref()).ok();
+                                                        leave_pip_callback.forget();
+                                                        
+                                                    } else {
+                                                        web_sys::console::log_1(&"Failed to call PiP".into());
+                                                    }
+                                                } else {
+                                                    web_sys::console::log_1(&"Failed to cast to function".into());
+                                                }
+                                            } else {
+                                                web_sys::console::log_1(&"No PiP method found".into());
+                                            }
+                                        }) as Box<dyn FnMut()>);
+                                        
+                                        video.add_event_listener_with_callback("loadedmetadata", callback.as_ref().unchecked_ref()).ok();
+                                        callback.forget(); // Keep callback alive
+                                    }
+                                } else {
+                                    web_sys::console::log_1(&"Failed to get stream".into());
+                                }
+                            });
+                        } else {
+                            web_sys::console::log_1(&"No canvas found".into());
+                        }
+                    }
+                },
+                // PiP icon
+                "🖼"
+            },
+
+            // Reset zoom button (4th from top)
             button {
                 style: format!("position: absolute; bottom: 252px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if crop_bounds().is_some() { "#f59e0b" } else { "#6b7280" }
@@ -757,7 +998,7 @@ fn DraggableCircle() -> Element {
                 "⤢"
             },
 
-            // Crop/zoom button (4th from top)
+            // Crop/zoom button (5th from top)
             button {
                 style: format!("position: absolute; bottom: 194px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_crop_mode() { "#8b5cf6" } else if crop_bounds().is_some() { "#a78bfa" } else { "#6366f1" }
@@ -771,7 +1012,7 @@ fn DraggableCircle() -> Element {
                 "⬚"
             },
 
-            // Screen share button (5th from top)
+            // Screen share button (6th from top)
             button {
                 style: format!("position: absolute; bottom: 136px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_screen_sharing() { "#ef4444" } else { "#3b82f6" }
