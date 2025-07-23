@@ -25,8 +25,11 @@ jobs:
       with:
         targets: wasm32-unknown-unknown
     
+    - name: Install cargo-binstall
+      uses: cargo-bins/cargo-binstall@main
+    
     - name: Install Dioxus CLI
-      run: cargo install dioxus-cli
+      run: cargo binstall dioxus-cli --no-confirm
     
     - name: Build
       run: dx build --release
@@ -39,7 +42,7 @@ jobs:
       uses: actions/upload-pages-artifact@v3
       if: github.ref == 'refs/heads/main'
       with:
-        path: ./dist
+        path: ./target/dx/demrec/release/web/public
 
   deploy:
     environment:
