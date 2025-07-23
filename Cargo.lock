@@ -741,6 +741,7 @@ name = "demrec"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

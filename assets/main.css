@@ -20,6 +20,22 @@ html, body {
     padding: 0;
 }
 
+#main-canvas[style*="crosshair"] {
+    cursor: crosshair !important;
+}
+
+#main-canvas[style*="grab"] {
+    cursor: grab !important;
+}
+
+#main-canvas[style*="grabbing"] {
+    cursor: grabbing !important;
+}
+
+#main-canvas[style*="nwse-resize"] {
+    cursor: nwse-resize !important;
+}
+
 
 
 
