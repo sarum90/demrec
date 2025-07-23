@@ -8,33 +8,6 @@ body {
     overflow: hidden;
 }
 
-.draggable-circle {
-    position: absolute;
-    background-color: #1a1a1a;
-    border-radius: 12px;
-    transition: transform 0.1s ease;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-    position: relative;
-}
-
-/* Resize handle indicator */
-.draggable-circle::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 20px;
-    height: 20px;
-    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.2) 50%);
-    border-bottom-right-radius: 12px;
-    pointer-events: none;
-}
-
-.draggable-circle:hover {
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
-}
-
 
 
 
