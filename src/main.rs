@@ -38,6 +38,7 @@ fn DraggableCircle() -> Element {
     let mut media_recorder = use_signal(|| None::<web_sys::MediaRecorder>);
     let mut recorded_chunks = use_signal(|| Vec::<web_sys::Blob>::new());
     let mut camera_enabled = use_signal(|| true);
+    let mut camera_stream = use_signal(|| None::<web_sys::MediaStream>);
     let mut is_crop_mode = use_signal(|| false);
     let mut crop_start = use_signal(|| (0.0, 0.0));
     let mut crop_end = use_signal(|| (0.0, 0.0));
@@ -49,6 +50,7 @@ fn DraggableCircle() -> Element {
     let mut file_stream = use_signal(|| None::<web_sys::FileSystemWritableFileStream>);
     let mut is_pointer_mode = use_signal(|| false);
     let mut pointer_position = use_signal(|| (0.0, 0.0));
+    let mut camera_zoom = use_signal(|| 1.0); // 1.0 = normal, >1.0 = zoomed in
 
     // Check if browser is Chrome and File System Access API is supported
     use_effect(move || {
@@ -205,14 +207,48 @@ fn DraggableCircle() -> Element {
                         let _ =
                             ctx.translate(-(pos.0 + cam_size.0 / 2.0), -(pos.1 + cam_size.1 / 2.0));
 
-                        // Draw camera video
-                        let _ = ctx.draw_image_with_html_video_element_and_dw_and_dh(
-                            &camera_video,
-                            pos.0,
-                            pos.1,
-                            cam_size.0,
-                            cam_size.1,
-                        );
+                        // Draw camera video with zoom/crop and aspect ratio correction
+                        let zoom = camera_zoom();
+                        let video_width = camera_video.video_width() as f64;
+                        let video_height = camera_video.video_height() as f64;
+                        
+                        if video_width > 0.0 && video_height > 0.0 {
+                            // First apply zoom crop
+                            let zoomed_width = video_width / zoom;
+                            let zoomed_height = video_height / zoom;
+                            
+                            // Calculate aspect ratios
+                            let video_aspect = zoomed_width / zoomed_height;
+                            let camera_aspect = cam_size.0 / cam_size.1;
+                            
+                            // Calculate final crop dimensions to match camera aspect ratio
+                            let (final_width, final_height) = if video_aspect > camera_aspect {
+                                // Video is wider, crop horizontally
+                                (zoomed_height * camera_aspect, zoomed_height)
+                            } else {
+                                // Video is taller, crop vertically
+                                (zoomed_width, zoomed_width / camera_aspect)
+                            };
+                            
+                            // Center the final crop area within the zoomed area
+                            let base_x = (video_width - zoomed_width) / 2.0;
+                            let base_y = (video_height - zoomed_height) / 2.0;
+                            let crop_x = base_x + (zoomed_width - final_width) / 2.0;
+                            let crop_y = base_y + (zoomed_height - final_height) / 2.0;
+                            
+                            // Draw the cropped video to fill the camera area exactly
+                            let _ = ctx.draw_image_with_html_video_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                                &camera_video,
+                                crop_x,
+                                crop_y,
+                                final_width,
+                                final_height,
+                                pos.0,
+                                pos.1,
+                                cam_size.0,
+                                cam_size.1,
+                            );
+                        }
 
                         // Restore context state
                         ctx.restore();
@@ -298,6 +334,9 @@ fn DraggableCircle() -> Element {
                         let future = wasm_bindgen_futures::JsFuture::from(promise);
                         if let Ok(stream) = future.await {
                             if let Ok(media_stream) = stream.dyn_into::<web_sys::MediaStream>() {
+                                // Store the stream so we can stop it later
+                                camera_stream.set(Some(media_stream.clone()));
+                                
                                 // Set the stream to video element if we have a reference
                                 if let Some(video_elem) = camera_video_ref() {
                                     video_elem.set_src_object(Some(&media_stream));
@@ -384,18 +423,13 @@ fn DraggableCircle() -> Element {
 
                         // Calculate new dimensions based on which corner is being dragged
                         if corner.contains("right") {
-                            new_width = (mouse_x - pos.0).max(160.0).min(400.0);
+                            new_width = (mouse_x - pos.0).max(100.0).min(600.0);
                         }
                         if corner.contains("bottom") {
-                            new_height = (mouse_y - pos.1).max(120.0).min(300.0);
+                            new_height = (mouse_y - pos.1).max(100.0).min(400.0);
                         }
 
-                        // Maintain aspect ratio (4:3)
-                        if corner == "bottom-right" {
-                            let aspect_ratio = 4.0 / 3.0;
-                            new_height = new_width / aspect_ratio;
-                        }
-
+                        // Allow free aspect ratio changes - no constraint
                         size.set((new_width, new_height));
                     } else {
                         // Update cursor based on mouse position when not dragging/resizing
@@ -555,9 +589,10 @@ fn DraggableCircle() -> Element {
                 },
             }
 
-            // Pointer tool button
+
+            // Pointer tool button (top)
             button {
-                style: format!("position: absolute; bottom: 310px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                style: format!("position: absolute; bottom: 368px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_pointer_mode() { "#8b5cf6" } else { "#6366f1" }
                 ),
                 onmousedown: move |event| {
@@ -577,49 +612,9 @@ fn DraggableCircle() -> Element {
                 "👆"
             },
 
-            // Reset zoom button
+            // Record button (2nd from top)
             button {
-                style: format!("position: absolute; bottom: 252px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
-                    if crop_bounds().is_some() { "#f59e0b" } else { "#6b7280" }
-                ),
-                onclick: move |_| {
-                    crop_bounds.set(None);
-                    is_crop_mode.set(false);
-                },
-                disabled: crop_bounds().is_none(),
-                // Reset/full screen icon
-                "⤢"
-            },
-
-            // Crop/zoom button
-            button {
-                style: format!("position: absolute; bottom: 194px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
-                    if is_crop_mode() { "#8b5cf6" } else if crop_bounds().is_some() { "#a78bfa" } else { "#6366f1" }
-                ),
-                onclick: move |_| {
-                    is_crop_mode.set(!is_crop_mode());
-                    is_drawing_crop.set(false);
-                },
-                disabled: !is_screen_sharing(),
-                // Crop icon
-                "⬚"
-            },
-
-            // Camera toggle button
-            button {
-                style: format!("position: absolute; bottom: 136px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
-                    if camera_enabled() { "#10b981" } else { "#6b7280" }
-                ),
-                onclick: move |_| {
-                    camera_enabled.set(!camera_enabled());
-                },
-                // Camera icon
-                {if camera_enabled() { "📹" } else { "📴" }}
-            },
-
-            // Record button
-            button {
-                style: format!("position: absolute; bottom: 78px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                style: format!("position: absolute; bottom: 310px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_recording() { "#ef4444" } else { "#dc2626" }
                 ),
                 onclick: move |_| {
@@ -748,9 +743,37 @@ fn DraggableCircle() -> Element {
                 {if is_recording() { "⏹" } else { "⏺" }}
             },
 
-            // Screen share button
+            // Reset zoom button (3rd from top)
             button {
-                style: format!("position: absolute; bottom: 20px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                style: format!("position: absolute; bottom: 252px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                    if crop_bounds().is_some() { "#f59e0b" } else { "#6b7280" }
+                ),
+                onclick: move |_| {
+                    crop_bounds.set(None);
+                    is_crop_mode.set(false);
+                },
+                disabled: crop_bounds().is_none(),
+                // Reset/full screen icon
+                "⤢"
+            },
+
+            // Crop/zoom button (4th from top)
+            button {
+                style: format!("position: absolute; bottom: 194px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
+                    if is_crop_mode() { "#8b5cf6" } else if crop_bounds().is_some() { "#a78bfa" } else { "#6366f1" }
+                ),
+                onclick: move |_| {
+                    is_crop_mode.set(!is_crop_mode());
+                    is_drawing_crop.set(false);
+                },
+                disabled: !is_screen_sharing(),
+                // Crop icon
+                "⬚"
+            },
+
+            // Screen share button (5th from top)
+            button {
+                style: format!("position: absolute; bottom: 136px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;",
                     if is_screen_sharing() { "#ef4444" } else { "#3b82f6" }
                 ),
                 onclick: move |_| {
@@ -788,6 +811,9 @@ fn DraggableCircle() -> Element {
                                                 }
                                                 screen_stream.set(Some(media_stream.clone()));
                                                 is_screen_sharing.set(true);
+                                                
+                                                // Reset screen share crop when starting
+                                                crop_bounds.set(None);
                                             }
                                         }
                                     }
@@ -796,9 +822,90 @@ fn DraggableCircle() -> Element {
                         });
                     }
                 },
-                // Screen share specific icons
+                // Screen share specific icons  
                 {if is_screen_sharing() { "📴" } else { "🖥" }}
             },
+
+            // Camera toggle button (above camera zoom)
+            button {
+                style: format!("position: absolute; bottom: 78px; left: 20px; z-index: 10; width: 48px; height: 48px; background-color: {}; color: white; border: none; border-radius: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-family: monospace;", 
+                    if camera_enabled() { "#10b981" } else { "#6b7280" }
+                ),
+                onclick: move |_| {
+                    if camera_enabled() {
+                        // Stop camera stream
+                        if let Some(stream) = camera_stream() {
+                            let tracks = stream.get_tracks();
+                            for i in 0..tracks.length() {
+                                let track = tracks.get(i);
+                                if let Ok(media_track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
+                                    media_track.stop();
+                                }
+                            }
+                        }
+                        camera_stream.set(None);
+                        
+                        // Clear video element
+                        if let Some(video_elem) = camera_video_ref() {
+                            video_elem.set_src_object(None);
+                        }
+                        
+                        camera_enabled.set(false);
+                    } else {
+                        // Start camera stream
+                        spawn(async move {
+                            if let Some(window) = web_sys::window() {
+                                let navigator = window.navigator();
+                                if let Ok(media_devices) = navigator.media_devices() {
+                                    let constraints = web_sys::MediaStreamConstraints::new();
+                                    constraints.set_video(&true.into());
+                                    constraints.set_audio(&false.into());
+
+                                    if let Ok(promise) = media_devices.get_user_media_with_constraints(&constraints) {
+                                        let future = wasm_bindgen_futures::JsFuture::from(promise);
+                                        if let Ok(stream) = future.await {
+                                            if let Ok(media_stream) = stream.dyn_into::<web_sys::MediaStream>() {
+                                                camera_stream.set(Some(media_stream.clone()));
+                                                
+                                                if let Some(video_elem) = camera_video_ref() {
+                                                    video_elem.set_src_object(Some(&media_stream));
+                                                    let _ = video_elem.play();
+                                                }
+                                                
+                                                camera_enabled.set(true);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                },
+                // Camera icon
+                {if camera_enabled() { "📹" } else { "📴" }}
+            },
+
+            // Camera zoom slider (bottom)
+            div {
+                style: "position: absolute; bottom: 20px; left: 20px; z-index: 10; width: 160px; height: 48px; background-color: rgba(31, 41, 55, 0.9); padding: 6px 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: flex; flex-direction: column; justify-content: center;",
+                div {
+                    style: "color: white; font-size: 10px; margin-bottom: 2px; font-family: monospace; text-align: center;",
+                    {format!("Zoom: {:.1}x", camera_zoom())}
+                }
+                input {
+                    r#type: "range",
+                    min: "1.0",
+                    max: "3.0",
+                    step: "0.1",
+                    value: format!("{}", camera_zoom()),
+                    style: "width: 100%; accent-color: #6366f1; height: 16px;",
+                    oninput: move |event| {
+                        if let Ok(value) = event.value().parse::<f64>() {
+                            camera_zoom.set(value);
+                        }
+                    }
+                }
+            }
 
             // Chrome Warning Modal
             if show_chrome_warning() {
